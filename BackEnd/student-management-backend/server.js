@@ -1,17 +1,24 @@
 const express = require("express");
 const mysql = require("mysql2");
 const cors = require("cors");
+require("dotenv").config();
 
 const app = express();
-app.use(cors());
+
+// ✅ CORS (allow frontend)
+app.use(cors({
+  origin: "*"
+}));
+
 app.use(express.json());
 
-// ✅ Connect to MySQL Database
+// ✅ MySQL Connection (from ENV)
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "sravs5414",
-  database: "new_schema",
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 3306
 });
 
 db.connect((err) => {
@@ -22,135 +29,78 @@ db.connect((err) => {
   console.log("✅ Connected to MySQL Database...");
 });
 
+// ✅ Test Route
+app.get("/", (req, res) => {
+  res.send("Backend is running 🚀");
+});
 
-// ✅ 1️⃣ GET ALL Students
+// ✅ All your routes (same as yours)
 app.get("/student", (req, res) => {
-  const sql = "SELECT * FROM student";
-  db.query(sql, (err, results) => {
+  db.query("SELECT * FROM student", (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(results);
   });
 });
 
-
-// ✅ 2️⃣ GET Student By ID
 app.get("/student/:id", (req, res) => {
-  const { id } = req.params;
-
-  const sql = "SELECT * FROM student WHERE StudentID = ?";
-  db.query(sql, [id], (err, result) => {
+  db.query("SELECT * FROM student WHERE StudentID = ?", [req.params.id], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-
-    if (result.length === 0) {
-      return res.status(404).json({ error: "Student not found" });
-    }
-
+    if (result.length === 0) return res.status(404).json({ error: "Not found" });
     res.json(result[0]);
   });
 });
 
-
-// ✅ 3️⃣ ADD New Student
 app.post("/student", (req, res) => {
   const { StudentName, StudentAge, StudentDept } = req.body;
 
   if (!StudentName || !StudentAge || !StudentDept) {
-    return res.status(400).json({ error: "All fields are required!" });
+    return res.status(400).json({ error: "All fields required" });
   }
 
-  const findMaxID = "SELECT MAX(StudentID) AS maxID FROM student";
-
-  db.query(findMaxID, (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    const maxID = result[0].maxID || 0;
-    const newStudentID = maxID + 1;
-
-    const sql =
-      "INSERT INTO student (StudentID, StudentName, StudentAge, StudentDept) VALUES (?, ?, ?, ?)";
+  db.query("SELECT MAX(StudentID) AS maxID FROM student", (err, result) => {
+    const newID = (result[0].maxID || 0) + 1;
 
     db.query(
-      sql,
-      [newStudentID, StudentName, StudentAge, StudentDept],
+      "INSERT INTO student VALUES (?, ?, ?, ?)",
+      [newID, StudentName, StudentAge, StudentDept],
       (err) => {
         if (err) return res.status(500).json({ error: err.message });
-
-        res.json({
-          message: "Student Added Successfully",
-          StudentID: newStudentID,
-        });
+        res.json({ message: "Added", StudentID: newID });
       }
     );
   });
 });
 
-
-// ✅ 4️⃣ PARTIAL UPDATE Student (PATCH)
 app.patch("/student/:id", (req, res) => {
-  const { id } = req.params;
   const { StudentName, StudentAge, StudentDept } = req.body;
 
   let fields = [];
   let values = [];
 
-  if (StudentName !== undefined && StudentName !== "") {
-    fields.push("StudentName = ?");
-    values.push(StudentName);
-  }
+  if (StudentName) { fields.push("StudentName=?"); values.push(StudentName); }
+  if (StudentAge) { fields.push("StudentAge=?"); values.push(StudentAge); }
+  if (StudentDept) { fields.push("StudentDept=?"); values.push(StudentDept); }
 
-  if (StudentAge !== undefined && StudentAge !== "") {
-    fields.push("StudentAge = ?");
-    values.push(StudentAge);
-  }
+  if (!fields.length) return res.status(400).json({ error: "No fields" });
 
-  if (StudentDept !== undefined && StudentDept !== "") {
-    fields.push("StudentDept = ?");
-    values.push(StudentDept);
-  }
+  values.push(req.params.id);
 
-  if (fields.length === 0) {
-    return res.status(400).json({ error: "No fields provided to update" });
-  }
-
-  const sql = `UPDATE student SET ${fields.join(", ")} WHERE StudentID = ?`;
-  values.push(id);
-
-  db.query(sql, values, (err, result) => {
+  db.query(`UPDATE student SET ${fields.join(",")} WHERE StudentID=?`, values, (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Student not found" });
-    }
-
-    res.json({ message: "Student updated successfully" });
+    res.json({ message: "Updated" });
   });
 });
 
-
-// ✅ 5️⃣ DELETE Student
 app.delete("/student/:id", (req, res) => {
-  const StudentID = req.params.id;
-
-  if (!StudentID || isNaN(StudentID)) {
-    return res.status(400).json({ error: "Invalid StudentID" });
-  }
-
-  const sql = "DELETE FROM student WHERE StudentID = ?";
-
-  db.query(sql, [StudentID], (err, result) => {
+  db.query("DELETE FROM student WHERE StudentID=?", [req.params.id], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Student not found" });
-    }
-
-    res.json({ message: "Student Deleted Successfully" });
+    res.json({ message: "Deleted" });
   });
 });
 
+// ✅ Use dynamic PORT (IMPORTANT for deployment)
+const PORT = process.env.PORT || 5000;
 
-// ✅ Start Server
-const PORT = 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}/student`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
